@@ -777,7 +777,7 @@ impl Display {
         let total_lines = terminal.grid().total_lines();
         let metrics = self.glyph_cache.font_metrics();
         let size_info = self.size_info;
-
+	let is_focused = terminal.is_focused;
         let vi_mode = terminal.mode().contains(TermMode::VI);
         let vi_cursor_point = if vi_mode { Some(terminal.vi_mode_cursor.point) } else { None };
 
@@ -791,7 +791,7 @@ impl Display {
         // Make sure this window's OpenGL context is active.
         self.make_current();
 
-        self.renderer.clear(background_color, config.window_opacity());
+        self.renderer.clear(background_color, if is_focused {config.window_opacity()} else {0.0});
         let mut lines = RenderLines::new();
 
         // Optimize loop hint comparator.
