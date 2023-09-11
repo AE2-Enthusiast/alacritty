@@ -154,6 +154,11 @@ impl UiConfig {
     }
 
     #[inline]
+    pub fn window_unfocused_opacity(&self) -> f32 {
+    	self.window.unfocused_opacity.as_f32()
+	}
+
+    #[inline]
     pub fn key_bindings(&self) -> &[KeyBinding] {
         if let Some(key_bindings) = self.key_bindings.as_ref() {
             &key_bindings.0

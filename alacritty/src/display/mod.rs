@@ -791,7 +791,7 @@ impl Display {
         // Make sure this window's OpenGL context is active.
         self.make_current();
 
-        self.renderer.clear(background_color, if is_focused {config.window_opacity()} else {0.0});
+        self.renderer.clear(background_color, if is_focused {config.window_opacity()} else {config.window_unfocused_opacity()});
         let mut lines = RenderLines::new();
 
         // Optimize loop hint comparator.

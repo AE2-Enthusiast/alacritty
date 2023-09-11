@@ -48,6 +48,7 @@ pub struct WindowConfig {
 
     /// Background opacity from 0.0 to 1.0.
     pub opacity: Percentage,
+    pub unfocused_opacity: Percentage,
 
     /// Controls which `Option` key should be treated as `Alt`.
     #[cfg(target_os = "macos")]
@@ -75,6 +76,7 @@ impl Default for WindowConfig {
             dynamic_padding: Default::default(),
             identity: Identity::default(),
             opacity: Default::default(),
+	    unfocused_opacity: Default::default(),
             padding: Default::default(),
             dimensions: Default::default(),
             resize_increments: Default::default(),
