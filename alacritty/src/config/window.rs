@@ -3,16 +3,15 @@ use std::fmt::{self, Formatter};
 use log::{error, warn};
 use serde::de::{self, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
-use winit::window::{Fullscreen, Theme};
 
 #[cfg(target_os = "macos")]
 use winit::platform::macos::OptionAsAlt as WinitOptionAsAlt;
+use winit::window::{Fullscreen, Theme as WinitTheme};
 
 use alacritty_config_derive::{ConfigDeserialize, SerdeReplace};
-use alacritty_terminal::config::{Percentage, LOG_TARGET_CONFIG};
-use alacritty_terminal::index::Column;
 
-use crate::config::ui_config::Delta;
+use crate::config::ui_config::{Delta, Percentage};
+use crate::config::LOG_TARGET_CONFIG;
 
 /// Default Alacritty name, used for window title and class.
 pub const DEFAULT_NAME: &str = "Alacritty";
@@ -32,9 +31,6 @@ pub struct WindowConfig {
     #[config(skip)]
     pub embed: Option<u32>,
 
-    /// System decorations theme variant.
-    pub decorations_theme_variant: Option<Theme>,
-
     /// Spread out additional padding evenly.
     pub dynamic_padding: bool,
 
@@ -53,7 +49,6 @@ pub struct WindowConfig {
     pub blur: bool,
 
     /// Controls which `Option` key should be treated as `Alt`.
-    #[cfg(target_os = "macos")]
     option_as_alt: OptionAsAlt,
 
     /// Resize increments.
@@ -64,6 +59,9 @@ pub struct WindowConfig {
 
     /// Initial dimensions.
     dimensions: Dimensions,
+
+    /// System decorations theme variant.
+    decorations_theme_variant: Option<Theme>,
 }
 
 impl Default for WindowConfig {
@@ -83,7 +81,6 @@ impl Default for WindowConfig {
 	    unfocused_opacity: Default::default(),
             resize_increments: Default::default(),
             decorations_theme_variant: Default::default(),
-            #[cfg(target_os = "macos")]
             option_as_alt: Default::default(),
         }
     }
@@ -92,7 +89,7 @@ impl Default for WindowConfig {
 impl WindowConfig {
     #[inline]
     pub fn dimensions(&self) -> Option<Dimensions> {
-        let (lines, columns) = (self.dimensions.lines, self.dimensions.columns.0);
+        let (lines, columns) = (self.dimensions.lines, self.dimensions.columns);
         let (lines_is_non_zero, columns_is_non_zero) = (lines != 0, columns != 0);
 
         if lines_is_non_zero && columns_is_non_zero {
@@ -152,6 +149,10 @@ impl WindowConfig {
             OptionAsAlt::None => WinitOptionAsAlt::None,
         }
     }
+
+    pub fn theme(&self) -> Option<WinitTheme> {
+        self.decorations_theme_variant.map(WinitTheme::from)
+    }
 }
 
 #[derive(ConfigDeserialize, Debug, Clone, PartialEq, Eq)]
@@ -175,7 +176,6 @@ pub enum StartupMode {
     Windowed,
     Maximized,
     Fullscreen,
-    #[cfg(target_os = "macos")]
     SimpleFullscreen,
 }
 
@@ -183,9 +183,7 @@ pub enum StartupMode {
 pub enum Decorations {
     #[default]
     Full,
-    #[cfg(target_os = "macos")]
     Transparent,
-    #[cfg(target_os = "macos")]
     Buttonless,
     None,
 }
@@ -196,7 +194,7 @@ pub enum Decorations {
 #[derive(ConfigDeserialize, Default, Debug, Copy, Clone, PartialEq, Eq)]
 pub struct Dimensions {
     /// Window width in character columns.
-    pub columns: Column,
+    pub columns: usize,
 
     /// Window Height in character lines.
     pub lines: usize,
@@ -279,7 +277,6 @@ impl<'de> Deserialize<'de> for Class {
     }
 }
 
-#[cfg(target_os = "macos")]
 #[derive(ConfigDeserialize, Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OptionAsAlt {
     /// The left `Option` key is treated as `Alt`.
@@ -294,4 +291,20 @@ pub enum OptionAsAlt {
     /// No special handling is applied for `Option` key.
     #[default]
     None,
+}
+
+/// System decorations theme variant.
+#[derive(ConfigDeserialize, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Theme {
+    Light,
+    Dark,
+}
+
+impl From<Theme> for WinitTheme {
+    fn from(theme: Theme) -> Self {
+        match theme {
+            Theme::Light => WinitTheme::Light,
+            Theme::Dark => WinitTheme::Dark,
+        }
+    }
 }

@@ -5,7 +5,55 @@ The sections should follow the order `Packaging`, `Added`, `Changed`, `Fixed` an
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## 0.13.0-dev
+## 0.14.0-dev
+
+### Added
+
+- Default `Home`/`End` bindings in Vi mode mapped to `First`/`Last` respectively
+
+### Fixed
+
+- CLI env variables clearing configuration file variables
+- Vi inline search/semantic selection expanding across newlines
+- C0 and C1 codes being emitted in associated text when using kitty keyboard
+- Occasional hang on startup with some Wayland compositors
+- Missing key for `NumpadDecimal` in key bindings
+
+### Changed
+
+- No unused-key warnings will be emitted for OS-specific config keys
+- Use built-in font for sextant symbols from `U+1FB00` to `U+1FB3B`
+- Kitty encoding is not used anymore for uncommon keys unless the protocol enabled
+
+## 0.13.1
+
+### Added
+
+- Support for pasting in Vi + Search mode
+
+### Changed
+
+- `alacritty migrate` will ignore null values in yaml instead of erroring out
+
+### Fixed
+
+- `alacritty migrate` failing with nonexistent imports
+- `Alt` bindings requiring composed key rather than pre-composed one on macOS
+- `Alt + Control` bindings not working on Windows
+- `chars = "\u000A"` action in bindings inserting `\n`
+- Alternate keys not sent for `Shift + <number>` when using kitty protocol
+- Alternative keys being swapped in kitty protocol implementation
+- Powerline glyphs being cut for narrow fonts
+- Xmodmap not working on X11
+- Occasional slow startup on some X11 window managers
+- Blurry window when using `window.dimensions` on some Wayland compositors
+- IME input lagging behind on X11
+- xdotool modifiers input not working correctly on X11
+- Parsing numbers fails for mouse bindings
+- Some config options overriding each other in CLI/IPC
+- Numpad `Left` used for numpad `Up`
+
+## 0.13.0
 
 ### Packaging
 
@@ -25,6 +73,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Debug option `prefer_egl` to prioritize EGL over other display APIs
 - Inline vi-mode search using `f`/`F`/`t`/`T`
 - `window.blur` config option to request blur for transparent windows
+- `--option` argument for `alacritty msg create-window`
+- Support for `DECRQM`/`DECRPM` escape sequences
+- Support for kitty's keyboard protocol
 
 ### Changed
 
@@ -45,6 +96,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Synchronized updates now use `CSI 2026` instead of legacy `DCS` variant
 - In mouse mode with `Shift` pressed, mouse bindings without `Shift` are only triggered
     if no exact binding (i.e. one with `Shift`) is found.
+- Use built-in font for powerline symbols from `U+E0B0` to `U+E0B3`
+- Default `bell.animation` is now `Linear`
+- `IncreaseFontSize/DecreaseFontSize` step is now 1px
+- `font.size` precision was raised to 6 floating point digits
+- Default font size to `11.25` matching 15px
+- `Xft.dpi` is now reloaded when xsettingd change its value on X11
 
 ### Fixed
 
@@ -65,6 +122,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Crash on exit when using NVIDIA binary drivers on Wayland
 - `window.startup_mode` applied to window again when creating new tab
 - Crash when leaving search after resize
+- Cursor being hidden after reaching cursor blinking timeout
+- Message bar content getting stuck after closing with multiple messages on Wayland
+- Vi cursor position not redrawn on PageUp/PageDown without scrollback
+- Cursor not updating when blinking and viewport is scrolled
+- Failure to start with recent version of mesa's i915 driver
+- Error when using `chars` inside the mouse bindings
 
 ### Removed
 
