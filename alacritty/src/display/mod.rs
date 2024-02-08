@@ -14,10 +14,10 @@ use glutin::surface::{Rect as DamageRect, Surface, SwapInterval, WindowSurface};
 
 use log::{debug, info};
 use parking_lot::MutexGuard;
+use raw_window_handle::RawWindowHandle;
 use serde::{Deserialize, Serialize};
 use winit::dpi::PhysicalSize;
 use winit::keyboard::ModifiersState;
-use winit::window::raw_window_handle::RawWindowHandle;
 use winit::window::CursorIcon;
 
 use crossfont::{self, Rasterize, Rasterizer};
@@ -392,6 +392,7 @@ impl Display {
         window: Window,
         gl_context: NotCurrentContext,
         config: &UiConfig,
+        _tabbed: bool,
     ) -> Result<Display, Error> {
         let raw_window_handle = window.raw_window_handle();
 
@@ -476,11 +477,13 @@ impl Display {
 
         #[allow(clippy::single_match)]
         #[cfg(not(windows))]
-        match config.window.startup_mode {
-            #[cfg(target_os = "macos")]
-            StartupMode::SimpleFullscreen => window.set_simple_fullscreen(true),
-            StartupMode::Maximized if !is_wayland => window.set_maximized(true),
-            _ => (),
+        if !_tabbed {
+            match config.window.startup_mode {
+                #[cfg(target_os = "macos")]
+                StartupMode::SimpleFullscreen => window.set_simple_fullscreen(true),
+                StartupMode::Maximized if !is_wayland => window.set_maximized(true),
+                _ => (),
+            }
         }
 
         let hint_state = HintState::new(config.hints.alphabet());
@@ -587,7 +590,7 @@ impl Display {
     }
 
     // XXX: this function must not call to any `OpenGL` related tasks. Renderer updates are
-    // performed in [`Self::process_renderer_update`] right befor drawing.
+    // performed in [`Self::process_renderer_update`] right before drawing.
     //
     /// Process update events.
     pub fn handle_update<T>(
@@ -595,7 +598,7 @@ impl Display {
         terminal: &mut Term<T>,
         pty_resize_handle: &mut dyn OnResize,
         message_buffer: &MessageBuffer,
-        search_active: bool,
+        search_state: &mut SearchState,
         config: &UiConfig,
     ) where
         T: EventListener,
@@ -640,6 +643,7 @@ impl Display {
         );
 
         // Update number of column/lines in the viewport.
+        let search_active = search_state.history_index.is_some();
         let message_bar_lines = message_buffer.message().map_or(0, |m| m.text(&new_size).len());
         let search_lines = usize::from(search_active);
         new_size.reserve_lines(message_bar_lines + search_lines);
@@ -655,10 +659,14 @@ impl Display {
         // Resize terminal.
         terminal.resize(new_size);
 
-        // Queue renderer update if terminal dimensions/padding changed.
+        // Check if dimensions have changed.
         if new_size != self.size_info {
+            // Queue renderer update.
             let renderer_update = self.pending_renderer_update.get_or_insert(Default::default());
             renderer_update.resize = true;
+
+            // Clear focused search match.
+            search_state.clear_focused_match();
         }
         self.size_info = new_size;
     }
@@ -987,10 +995,7 @@ impl Display {
 
         // XXX: Request the new frame after swapping buffers, so the
         // time to finish OpenGL operations is accounted for in the timeout.
-        if matches!(
-            self.raw_window_handle,
-            RawWindowHandle::AppKit(_) | RawWindowHandle::Xlib(_) | RawWindowHandle::Xcb(_)
-        ) {
+        if !matches!(self.raw_window_handle, RawWindowHandle::Wayland(_)) {
             self.request_frame(scheduler);
         }
 
@@ -1381,7 +1386,7 @@ impl Display {
         }
     }
 
-    /// Requst a new frame for a window on Wayland.
+    /// Request a new frame for a window on Wayland.
     fn request_frame(&mut self, scheduler: &mut Scheduler) {
         // Mark that we've used a frame.
         self.window.has_frame = false;
@@ -1411,7 +1416,7 @@ impl Display {
 impl Drop for Display {
     fn drop(&mut self) {
         // Switch OpenGL context before dropping, otherwise objects (like programs) from other
-        // contexts might be deleted during droping renderer.
+        // contexts might be deleted when dropping renderer.
         self.make_current();
         unsafe {
             ManuallyDrop::drop(&mut self.renderer);

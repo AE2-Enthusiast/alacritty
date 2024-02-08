@@ -46,7 +46,8 @@ use crate::display::hint::HintMatch;
 use crate::display::window::Window;
 use crate::display::{Display, SizeInfo};
 use crate::event::{
-    ClickState, Event, EventType, Mouse, TouchPurpose, TouchZoom, TYPING_SEARCH_DELAY,
+    ClickState, Event, EventType, InlineSearchState, Mouse, TouchPurpose, TouchZoom,
+    TYPING_SEARCH_DELAY,
 };
 use crate::message_bar::{self, Message};
 use crate::scheduler::{Scheduler, TimerId, Topic};
@@ -124,6 +125,10 @@ pub trait ActionContext<T: EventListener> {
     fn search_active(&self) -> bool;
     fn on_typing_start(&mut self) {}
     fn toggle_vi_mode(&mut self) {}
+    fn inline_search_state(&mut self) -> &mut InlineSearchState;
+    fn start_inline_search(&mut self, _direction: Direction, _stop_short: bool) {}
+    fn inline_search_next(&mut self) {}
+    fn inline_search_previous(&mut self) {}
     fn hint_input(&mut self, _character: char) {}
     fn trigger_hint(&mut self, _hint: &HintMatch) {}
     fn expand_selection(&mut self) {}
@@ -259,6 +264,20 @@ impl<T: EventListener> Execute<T> for Action {
 
                 ctx.scroll(Scroll::Delta(scroll_lines));
             },
+            Action::Vi(ViAction::InlineSearchForward) => {
+                ctx.start_inline_search(Direction::Right, false)
+            },
+            Action::Vi(ViAction::InlineSearchBackward) => {
+                ctx.start_inline_search(Direction::Left, false)
+            },
+            Action::Vi(ViAction::InlineSearchForwardShort) => {
+                ctx.start_inline_search(Direction::Right, true)
+            },
+            Action::Vi(ViAction::InlineSearchBackwardShort) => {
+                ctx.start_inline_search(Direction::Left, true)
+            },
+            Action::Vi(ViAction::InlineSearchNext) => ctx.inline_search_next(),
+            Action::Vi(ViAction::InlineSearchPrevious) => ctx.inline_search_previous(),
             action @ Action::Search(_) if !ctx.search_active() => {
                 debug!("Ignoring {action:?}: Search mode inactive");
             },
@@ -984,17 +1003,24 @@ impl<T: EventListener, A: ActionContext<T>> Processor<T, A> {
         let mode = BindingMode::new(self.ctx.terminal().mode(), self.ctx.search_active());
         let mouse_mode = self.ctx.mouse_mode();
         let mods = self.ctx.modifiers().state();
+        let mouse_bindings = self.ctx.config().mouse_bindings().to_owned();
 
-        for i in 0..self.ctx.config().mouse_bindings().len() {
-            let mut binding = self.ctx.config().mouse_bindings()[i].clone();
+        // If mouse mode is active, also look for bindings without shift.
+        let mut check_fallback = mouse_mode && mods.contains(ModifiersState::SHIFT);
 
-            // Require shift for all modifiers when mouse mode is active.
-            if mouse_mode {
-                binding.mods |= ModifiersState::SHIFT;
-            }
-
+        for binding in &mouse_bindings {
             if binding.is_triggered_by(mode, mods, &button) {
                 binding.action.execute(&mut self.ctx);
+                check_fallback = false;
+            }
+        }
+
+        if check_fallback {
+            let fallback_mods = mods & !ModifiersState::SHIFT;
+            for binding in &mouse_bindings {
+                if binding.is_triggered_by(mode, fallback_mods, &button) {
+                    binding.action.execute(&mut self.ctx);
+                }
             }
         }
     }
@@ -1013,6 +1039,20 @@ impl<T: EventListener, A: ActionContext<T>> Processor<T, A> {
             for character in text.chars() {
                 self.ctx.hint_input(character);
             }
+            return;
+        }
+
+        // First key after inline search is captured.
+        let inline_state = self.ctx.inline_search_state();
+        if mem::take(&mut inline_state.char_pending) {
+            if let Some(c) = text.chars().next() {
+                inline_state.character = Some(c);
+
+                // Immediately move to the captured character.
+                self.ctx.inline_search_next();
+            }
+
+            // Ignore all other characters in `text`.
             return;
         }
 
@@ -1087,7 +1127,7 @@ impl<T: EventListener, A: ActionContext<T>> Processor<T, A> {
 
             // We don't want the key without modifier, because it means something else most of
             // the time. However what we want is to manually lowercase the character to account
-            // for both small and capital latters on regular characters at the same time.
+            // for both small and capital letters on regular characters at the same time.
             let logical_key = if let Key::Character(ch) = key.logical_key.as_ref() {
                 Key::Character(ch.to_lowercase().into())
             } else {
@@ -1218,6 +1258,7 @@ mod tests {
         pub message_buffer: &'a mut MessageBuffer,
         pub modifiers: Modifiers,
         config: &'a UiConfig,
+        inline_search_state: &'a mut InlineSearchState,
     }
 
     impl<'a, T: EventListener> super::ActionContext<T> for ActionContext<'a, T> {
@@ -1232,6 +1273,10 @@ mod tests {
 
         fn search_direction(&self) -> Direction {
             Direction::Right
+        }
+
+        fn inline_search_state(&mut self) -> &mut InlineSearchState {
+            self.inline_search_state
         }
 
         fn search_active(&self) -> bool {
@@ -1346,6 +1391,7 @@ mod tests {
                     ..Mouse::default()
                 };
 
+                let mut inline_search_state = InlineSearchState::default();
                 let mut message_buffer = MessageBuffer::default();
 
                 let context = ActionContext {
@@ -1355,6 +1401,7 @@ mod tests {
                     clipboard: &mut clipboard,
                     modifiers: Default::default(),
                     message_buffer: &mut message_buffer,
+                    inline_search_state: &mut inline_search_state,
                     config: &cfg,
                 };
 

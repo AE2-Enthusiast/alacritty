@@ -133,6 +133,12 @@ This section documents the *[window]* table of the configuration file.
 
 	Default: _1.0_
 
+*blur* <boolean> _(works on macOS/KDE Wayland)_
+
+	Request compositor to blur content behind transparent windows.
+
+	Default: _false_
+
 *startup_mode* "Windowed" | "Maximized" | "Fullscreen" | "SimpleFullscreen"
 
 	Startup mode (changes require restart)
@@ -583,9 +589,10 @@ This section documents the *[mouse]* table of the configuration file.
 	See _keyboard.bindings_ for full documentation on _mods_, _mode_, _action_,
 	and _chars_.
 
-	To trigger mouse bindings when an application running within Alacritty
-	captures the mouse, the `Shift` modifier is automatically added as a
-	requirement.
+	When an application running within Alacritty captures the mouse, the `Shift`
+	modifier can be used to suppress mouse reporting. If no action is found for
+	the event, actions for the event without the `Shift` modifier are triggered
+	instead.
 
 	*mouse* "Middle" | "Left" | "Right" | "Back" | "Forward" | <number>
 
@@ -698,8 +705,10 @@ This section documents the *[keyboard]* table of the configuration file.
 
 		The regular keys like _"A"_, _"0"_, and _"Я"_ can be mapped directly
 		without any special syntax. Full list of named keys like _"F1"_ and the
-		syntax for dead keys can be found here:++
-https://docs.rs/winit/\*/winit/keyboard/enum.Key.html
+		syntax for dead keys can be found here:
+
+		https://docs.rs/winit/latest/winit/keyboard/enum.NamedKey.html++
+https://docs.rs/winit/latest/winit/keyboard/enum.Key.html#variant.Dead
 
 		Numpad keys are prefixed by _Numpad_: "NumpadEnter" | "NumpadAdd" |
 		"NumpadComma" | "NumpadDivide" | "NumpadEquals" | "NumpadSubtract" |
@@ -827,6 +836,38 @@ https://docs.rs/winit/\*/winit/keyboard/enum.Key.html
 			Move to end of whitespace separated word.
 		*Bracket*
 			Move to opposing bracket.
+		*ToggleNormalSelection*
+			Toggle normal vi selection.
+		*ToggleLineSelection*
+			Toggle line vi selection.
+		*ToggleBlockSelection*
+			Toggle block vi selection.
+		*ToggleSemanticSelection*
+			Toggle semantic vi selection.
+		*SearchNext*
+			Jump to the beginning of the next match.
+		*SearchPrevious*
+			Jump to the beginning of the previous match.
+		*SearchStart*
+			Jump to the next start of a match to the left of the origin.
+		*SearchEnd*
+			Jump to the next end of a match to the right of the origin.
+		*Open*
+			Launch the URL below the vi mode cursor.
+		*CenterAroundViCursor*
+			Centers the screen around the vi mode cursor.
+		*InlineSearchForward*
+			Search forward within the current line.
+		*InlineSearchBcakward*
+			Search backward within the current line.
+		*InlineSearchForwardShort*
+			Search forward within the current line, stopping just short of the character.
+		*InlineSearchBackwardShort*
+			Search backward within the current line, stopping just short of the character.
+		*InlineSearchNext*
+			Jump to the next inline search match.
+		*InlineSearchPrevious*
+			Jump to the previous inline search match.
 
 		_Search actions:_
 
@@ -876,7 +917,7 @@ https://docs.rs/winit/\*/winit/keyboard/enum.Key.html
 		*SelectTab8*
 			Select the eighth tab.
 		*SelectTab9*
-			Select the nineth tab.
+			Select the ninth tab.
 		*SelectLastTab*
 			Select the last tab.
 

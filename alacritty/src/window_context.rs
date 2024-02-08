@@ -11,15 +11,14 @@ use std::sync::Arc;
 
 use crossfont::Size;
 use glutin::config::GetGlConfig;
-use glutin::context::NotCurrentContext;
 use glutin::display::GetGlDisplay;
 #[cfg(all(feature = "x11", not(any(target_os = "macos", windows))))]
 use glutin::platform::x11::X11GlConfigExt;
 use log::{error, info};
+use raw_window_handle::HasRawDisplayHandle;
 use serde_json as json;
-use winit::event::{Event as WinitEvent, Modifiers};
+use winit::event::{Event as WinitEvent, Modifiers, WindowEvent};
 use winit::event_loop::{EventLoopProxy, EventLoopWindowTarget};
-use winit::window::raw_window_handle::HasRawDisplayHandle;
 use winit::window::WindowId;
 
 use alacritty_config::SerdeReplace;
@@ -39,7 +38,9 @@ use crate::clipboard::Clipboard;
 use crate::config::UiConfig;
 use crate::display::window::Window;
 use crate::display::Display;
-use crate::event::{ActionContext, Event, EventProxy, Mouse, SearchState, TouchPurpose};
+use crate::event::{
+    ActionContext, Event, EventProxy, InlineSearchState, Mouse, SearchState, TouchPurpose,
+};
 use crate::logging::LOG_TARGET_IPC_CONFIG;
 use crate::message_bar::MessageBuffer;
 use crate::scheduler::Scheduler;
@@ -54,6 +55,7 @@ pub struct WindowContext {
     terminal: Arc<FairMutex<Term<EventProxy>>>,
     cursor_blink_timed_out: bool,
     modifiers: Modifiers,
+    inline_search_state: InlineSearchState,
     search_state: SearchState,
     notifier: Notifier,
     font_size: Size,
@@ -70,7 +72,7 @@ pub struct WindowContext {
 }
 
 impl WindowContext {
-    /// Create initial window context that dous bootstrapping the graphics Api we're going to use.
+    /// Create initial window context that does bootstrapping the graphics API we're going to use.
     pub fn initial(
         event_loop: &EventLoopWindowTarget<Event>,
         proxy: EventLoopProxy<Event>,
@@ -114,7 +116,9 @@ impl WindowContext {
         let gl_context =
             renderer::platform::create_gl_context(&gl_display, &gl_config, raw_window_handle)?;
 
-        Self::new(window, gl_context, config, options, proxy)
+        let display = Display::new(window, gl_context, &config, false)?;
+
+        Self::new(display, config, options, proxy)
     }
 
     /// Create additional context with the graphics platform other windows are using.
@@ -152,13 +156,20 @@ impl WindowContext {
             Some(raw_window_handle),
         )?;
 
-        Self::new(window, gl_context, config, options, proxy)
+        // Check if new window will be opened as a tab.
+        #[cfg(target_os = "macos")]
+        let tabbed = options.window_tabbing_id.is_some();
+        #[cfg(not(target_os = "macos"))]
+        let tabbed = false;
+
+        let display = Display::new(window, gl_context, &config, tabbed)?;
+
+        Self::new(display, config, options, proxy)
     }
 
     /// Create a new terminal window context.
     fn new(
-        window: Window,
-        context: NotCurrentContext,
+        display: Display,
         config: Rc<UiConfig>,
         options: WindowOptions,
         proxy: EventLoopProxy<Event>,
@@ -167,11 +178,6 @@ impl WindowContext {
         options.terminal_options.override_pty_config(&mut pty_config);
 
         let preserve_title = options.window_identity.title.is_some();
-
-        // Create a display.
-        //
-        // The display manages a window and can draw the terminal.
-        let display = Display::new(window, context, &config)?;
 
         info!(
             "PTY dimensions: {:?} x {:?}",
@@ -242,15 +248,16 @@ impl WindowContext {
             config,
             notifier: Notifier(loop_tx),
             cursor_blink_timed_out: Default::default(),
+            inline_search_state: Default::default(),
             message_buffer: Default::default(),
             search_state: Default::default(),
             event_queue: Default::default(),
             ipc_config: Default::default(),
             modifiers: Default::default(),
+            occluded: Default::default(),
             mouse: Default::default(),
             touch: Default::default(),
             dirty: Default::default(),
-            occluded: Default::default(),
         })
     }
 
@@ -303,6 +310,9 @@ impl WindowContext {
             self.display.pending_update.set_font(font);
         }
 
+        // Always reload the theme to account for auto-theme switching.
+        self.display.window.set_theme(self.config.window.decorations_theme_variant);
+
         // Update display if either padding options or resize increments were changed.
         let window_config = &old_config.window;
         if window_config.padding(1.) != self.config.window.padding(1.)
@@ -335,8 +345,9 @@ impl WindowContext {
         #[cfg(target_os = "macos")]
         self.display.window.set_option_as_alt(self.config.window.option_as_alt());
 
-        // Change opacity state.
+        // Change opacity and blur state.
         self.display.window.set_transparent(!opaque);
+        self.display.window.set_blur(self.config.window.blur);
 
         // Update hint keys.
         self.display.hint_state.update_alphabet(self.config.hints.alphabet());
@@ -412,7 +423,8 @@ impl WindowContext {
         event: WinitEvent<Event>,
     ) {
         match event {
-            WinitEvent::AboutToWait | WinitEvent::RedrawRequested(_) => {
+            WinitEvent::AboutToWait
+            | WinitEvent::WindowEvent { event: WindowEvent::RedrawRequested, .. } => {
                 // Skip further event handling with no staged updates.
                 if self.event_queue.is_empty() {
                     return;
@@ -433,6 +445,7 @@ impl WindowContext {
         let context = ActionContext {
             cursor_blink_timed_out: &mut self.cursor_blink_timed_out,
             message_buffer: &mut self.message_buffer,
+            inline_search_state: &mut self.inline_search_state,
             search_state: &mut self.search_state,
             modifiers: &mut self.modifiers,
             font_size: &mut self.font_size,
@@ -467,7 +480,7 @@ impl WindowContext {
                 &mut self.display,
                 &mut self.notifier,
                 &self.message_buffer,
-                &self.search_state,
+                &mut self.search_state,
                 old_is_searching,
                 &self.config,
             );
@@ -484,11 +497,12 @@ impl WindowContext {
             self.mouse.hint_highlight_dirty = false;
         }
 
-        // Request a redraw.
-        //
-        // Even though redraw requests are squashed in winit, we try not to
-        // request more if we haven't received a new frame request yet.
-        if self.dirty && !self.occluded && !matches!(event, WinitEvent::RedrawRequested(_)) {
+        // Don't call `request_redraw` when event is `RedrawRequested` since the `dirty` flag
+        // represents the current frame, but redraw is for the next frame.
+        if self.dirty
+            && !self.occluded
+            && !matches!(event, WinitEvent::WindowEvent { event: WindowEvent::RedrawRequested, .. })
+        {
             self.display.window.request_redraw();
         }
     }
@@ -532,7 +546,7 @@ impl WindowContext {
         display: &mut Display,
         notifier: &mut Notifier,
         message_buffer: &MessageBuffer,
-        search_state: &SearchState,
+        search_state: &mut SearchState,
         old_is_searching: bool,
         config: &UiConfig,
     ) {
@@ -545,13 +559,7 @@ impl WindowContext {
             search_state.direction == Direction::Left
         };
 
-        display.handle_update(
-            terminal,
-            notifier,
-            message_buffer,
-            search_state.history_index.is_some(),
-            config,
-        );
+        display.handle_update(terminal, notifier, message_buffer, search_state, config);
 
         let new_is_searching = search_state.history_index.is_some();
         if !old_is_searching && new_is_searching {
@@ -569,6 +577,6 @@ impl WindowContext {
 impl Drop for WindowContext {
     fn drop(&mut self) {
         // Shutdown the terminal's PTY.
-        let _ = self.notifier.0.send(Msg::Shutdown);
+        self.notifier.0.send(Msg::Shutdown);
     }
 }

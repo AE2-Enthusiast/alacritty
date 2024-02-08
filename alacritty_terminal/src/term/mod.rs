@@ -4,6 +4,8 @@ use std::ops::{Index, IndexMut, Range};
 use std::sync::Arc;
 use std::{cmp, mem, ptr, slice, str};
 
+use base64::engine::general_purpose::STANDARD as Base64;
+use base64::Engine;
 use bitflags::bitflags;
 use log::{debug, trace};
 use unicode_width::UnicodeWidthChar;
@@ -400,7 +402,7 @@ impl<T> Term<T> {
         // Add information about old cursor position and new one if they are not the same, so we
         // cover everything that was produced by `Term::input`.
         if self.damage.last_cursor != previous_cursor {
-            // Cursor cooridanates are always inside viewport even if you have `display_offset`.
+            // Cursor coordinates are always inside viewport even if you have `display_offset`.
             let point = Point::new(previous_cursor.line.0 as usize, previous_cursor.column);
             self.damage.damage_point(point);
         }
@@ -1556,7 +1558,7 @@ impl<T: EventListener> Handler for Term<T> {
             _ => return,
         };
 
-        if let Ok(bytes) = base64::decode(base64) {
+        if let Ok(bytes) = Base64.decode(base64) {
             if let Ok(text) = String::from_utf8(bytes) {
                 self.event_proxy.send_event(Event::ClipboardStore(clipboard_type, text));
             }
@@ -1582,7 +1584,7 @@ impl<T: EventListener> Handler for Term<T> {
         self.event_proxy.send_event(Event::ClipboardLoad(
             clipboard_type,
             Arc::new(move |text| {
-                let base64 = base64::encode(text);
+                let base64 = Base64.encode(text);
                 format!("\x1b]52;{};{}{}", clipboard as char, base64, terminator)
             }),
         ));
@@ -2980,7 +2982,7 @@ mod tests {
         term.push_title();
         term.set_title(Some("Next".into()));
         assert_eq!(term.title, Some("Next".into()));
-        assert_eq!(term.title_stack.get(0).unwrap(), &Some("Test".into()));
+        assert_eq!(term.title_stack.first().unwrap(), &Some("Test".into()));
 
         // Title can be popped from stack and set as the window title.
         term.pop_title();

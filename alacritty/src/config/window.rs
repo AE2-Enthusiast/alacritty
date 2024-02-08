@@ -1,5 +1,4 @@
 use std::fmt::{self, Formatter};
-use std::os::raw::c_ulong;
 
 use log::{error, warn};
 use serde::de::{self, MapAccess, Visitor};
@@ -31,7 +30,7 @@ pub struct WindowConfig {
 
     /// XEmbed parent.
     #[config(skip)]
-    pub embed: Option<c_ulong>,
+    pub embed: Option<u32>,
 
     /// System decorations theme variant.
     pub decorations_theme_variant: Option<Theme>,
@@ -49,6 +48,9 @@ pub struct WindowConfig {
     /// Background opacity from 0.0 to 1.0.
     pub opacity: Percentage,
     pub unfocused_opacity: Percentage,
+
+    /// Request blur behind the window.
+    pub blur: bool,
 
     /// Controls which `Option` key should be treated as `Alt`.
     #[cfg(target_os = "macos")]
@@ -68,18 +70,19 @@ impl Default for WindowConfig {
     fn default() -> Self {
         Self {
             dynamic_title: true,
+            blur: Default::default(),
+            embed: Default::default(),
+            padding: Default::default(),
+            opacity: Default::default(),
             position: Default::default(),
+            identity: Default::default(),
+            dimensions: Default::default(),
             decorations: Default::default(),
             startup_mode: Default::default(),
-            embed: Default::default(),
-            decorations_theme_variant: Default::default(),
             dynamic_padding: Default::default(),
-            identity: Identity::default(),
-            opacity: Default::default(),
 	    unfocused_opacity: Default::default(),
-            padding: Default::default(),
-            dimensions: Default::default(),
             resize_increments: Default::default(),
+            decorations_theme_variant: Default::default(),
             #[cfg(target_os = "macos")]
             option_as_alt: Default::default(),
         }
