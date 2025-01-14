@@ -218,20 +218,15 @@ impl<T: EventListener, A: ActionContext<T>> Processor<T, A> {
         let text = key.text_with_all_modifiers().unwrap_or_default();
         let mods = if self.alt_send_esc(&key, text) { mods } else { mods & !ModifiersState::ALT };
 
-        let bytes: Cow<'static, [u8]> = match key.logical_key.as_ref() {
-            // NOTE: Echo the key back on release to follow kitty/foot behavior. When
-            // KEYBOARD_REPORT_ALL_KEYS_AS_ESC is used, we build proper escapes for
-            // the keys below.
-            _ if mode.contains(TermMode::REPORT_ALL_KEYS_AS_ESC) => {
-                build_sequence(key, mods, mode).into()
+        let bytes = match key.logical_key.as_ref() {
+            Key::Named(NamedKey::Enter)
+            | Key::Named(NamedKey::Tab)
+            | Key::Named(NamedKey::Backspace)
+                if !mode.contains(TermMode::REPORT_ALL_KEYS_AS_ESC) =>
+            {
+                return
             },
-            // Winit uses different keys for `Backspace` so we explicitly specify the
-            // values, instead of using what was passed to us from it.
-            Key::Named(NamedKey::Tab) => [b'\t'].as_slice().into(),
-            Key::Named(NamedKey::Enter) => [b'\r'].as_slice().into(),
-            Key::Named(NamedKey::Backspace) => [b'\x7f'].as_slice().into(),
-            Key::Named(NamedKey::Escape) => [b'\x1b'].as_slice().into(),
-            _ => build_sequence(key, mods, mode).into(),
+            _ => build_sequence(key, mods, mode),
         };
 
         self.ctx.write_to_pty(bytes);
@@ -280,7 +275,7 @@ fn build_sequence(key: KeyEvent, mods: ModifiersState, mode: TermMode) -> Vec<u8
     let sequence_base = context
         .try_build_numpad(&key)
         .or_else(|| context.try_build_named_kitty(&key))
-        .or_else(|| context.try_build_named_normal(&key))
+        .or_else(|| context.try_build_named_normal(&key, associated_text.is_some()))
         .or_else(|| context.try_build_control_char_or_mod(&key, &mut modifiers))
         .or_else(|| context.try_build_textual(&key, associated_text));
 
@@ -483,14 +478,23 @@ impl SequenceBuilder {
     }
 
     /// Try building from [`NamedKey`].
-    fn try_build_named_normal(&self, key: &KeyEvent) -> Option<SequenceBase> {
+    fn try_build_named_normal(
+        &self,
+        key: &KeyEvent,
+        has_associated_text: bool,
+    ) -> Option<SequenceBase> {
         let named = match key.logical_key {
             Key::Named(named) => named,
             _ => return None,
         };
 
         // The default parameter is 1, so we can omit it.
-        let one_based = if self.modifiers.is_empty() && !self.kitty_event_type { "" } else { "1" };
+        let one_based =
+            if self.modifiers.is_empty() && !self.kitty_event_type && !has_associated_text {
+                ""
+            } else {
+                "1"
+            };
         let (base, terminator) = match named {
             NamedKey::PageUp => ("5", SequenceTerminator::Normal('~')),
             NamedKey::PageDown => ("6", SequenceTerminator::Normal('~')),
